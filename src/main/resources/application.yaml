@@ -1,0 +1,8 @@
+spring:
+  application:
+    name: order-manager
+
+external:
+    system:
+      url: ${EXTERNAL_SYSTEM_URL}
+

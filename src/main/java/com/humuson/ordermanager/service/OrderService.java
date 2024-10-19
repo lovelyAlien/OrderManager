@@ -12,7 +12,7 @@ import java.util.List;
 @RequiredArgsConstructor
 public class OrderService {
   private final OrderRepository orderRepository;
-  private final ExternalService externalService;
+  private final ExternalHttpJsonService externalHttpJsonService;
 
   public Order getOrderById(String id) {
     return orderRepository.findById(id)
@@ -24,7 +24,7 @@ public class OrderService {
   }
 
   public Order fetchAndSaveOrder() {
-    Order order = externalService.fetchOrder();
+    Order order = externalHttpJsonService.fetchOrder();
     orderRepository.save(order);
     return order;
   }
@@ -32,6 +32,6 @@ public class OrderService {
   public void findAndSendOrder(String id) {
     Order order = orderRepository.findById(id)
       .orElseThrow(() -> new OrderNotFoundException("Order with ID " + id + " not found."));
-    externalService.sendOrder(order);
+    externalHttpJsonService.sendOrder(order);
   }
 }

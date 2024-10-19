@@ -13,7 +13,7 @@ import org.springframework.web.client.RestTemplate;
 
 @Service
 @RequiredArgsConstructor
-public class ExternalService extends ExternalSystemTemplate {
+public class ExternalHttpJsonService extends ExternalSystemTemplate {
 
   private final RestTemplate restTemplate;
   private final ObjectMapper objectMapper;

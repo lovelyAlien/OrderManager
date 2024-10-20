@@ -7,6 +7,33 @@
         </encoder>
     </appender>
 
+    <!-- 파일에 로그 저장 (외부 시스템 오류 로그 전용) -->
+    <appender name="EXTERNAL_ERROR_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <!-- 로그 파일 경로 -->
+        <file>logs/external-system-error.log</file>
+
+        <!-- 파일이 일정 크기를 넘으면 새로운 파일로 교체 -->
+        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+            <!-- 파일 이름 패턴 (날짜와 인덱스 기반으로 롤링) -->
+            <fileNamePattern>logs/external-system-error.%d{yyyy-MM-dd}.%i.log</fileNamePattern>
+            <!-- 최대 파일 크기 (예: 10MB) -->
+            <maxFileSize>10MB</maxFileSize>
+            <!-- 30일 동안 로그 파일 보관 -->
+            <maxHistory>30</maxHistory>
+            <!-- 전체 로그 파일 크기 제한 (예: 3GB) -->
+            <totalSizeCap>3GB</totalSizeCap>
+        </rollingPolicy>
+
+        <encoder>
+            <pattern>%d{yyyy-MM-dd HH:mm:ss} %-5level %logger{36} - %msg%n</pattern>
+        </encoder>
+    </appender>
+
+    <!-- 외부 시스템과 관련된 오류만 파일에 기록 -->
+    <logger name="externalLogger" level="ERROR" additivity="false">
+        <appender-ref ref="EXTERNAL_ERROR_FILE" />
+    </logger>
+
     <!-- 기본 콘솔 로그 설정 (모든 로그 콘솔 출력) -->
     <root level="INFO">
         <appender-ref ref="CONSOLE" />

@@ -38,78 +38,91 @@
 이와 같은 설계는 시스템이 확장될 때, 새로운 외부 시스템과의 연동을 쉽게 추가할 수 있는 유연성을 제공합니다.
 
 ## 예외 처리 (Exception Handling)
+외부 시스템 연동 및 데이터 변환 중 발생하는 예외를 처리하기 위해 Spring Retry를 활용하여 재시도 로직을 구현하였으며, 재시도 실패 시 Logback을 통해 해당 오류를 전용 로거로 기록하고 지정된 경로의 로그 파일에 저장되도록 설정하였습니다.
 
-**외부 시스템 연동 및 데이터 변환 과정**에서 발생하는 예외 상황을 처리하기 위해, **Logback**을 사용하여 오류 발생 시 로그를 파일에 기록하도록 구현하였습니다. 
+외부 시스템 연동과 데이터 변환에서 발생하는 오류를 **전용 로거**를 통해 관리하며, 로그 파일은 지정된 경로에 저장됩니다.   
 
-외부 시스템 연동과 데이터 변환에서 발생하는 오류를 **전용 로거**를 통해 관리하며, 로그 파일은 지정된 경로에 저장됩니다.
-```
+### 전용 로거 설정   
+- **전용 로거 지정**
+```java
 private static final Logger externalLogger = LoggerFactory.getLogger("externalLogger");
 ```
+- **logback-spring.xml**
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+    <!-- 콘솔에 로그 출력 (모든 로그) -->
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>%d{yyyy-MM-dd HH:mm:ss} %-5level %logger{36} - %msg%n</pattern>
+        </encoder>
+    </appender>
 
-1. 외부 시스템 연동 오류  처리
+    <!-- 파일에 로그 저장 (외부 시스템 오류 로그 전용) -->
+    <appender name="EXTERNAL_ERROR_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <!-- 로그 파일 경로 -->
+        <file>logs/external-system-error.log</file>
+
+        <!-- 파일이 일정 크기를 넘으면 새로운 파일로 교체 -->
+        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+            <!-- 파일 이름 패턴 (날짜와 인덱스 기반으로 롤링) -->
+            <fileNamePattern>logs/external-system-error.%d{yyyy-MM-dd}.%i.log</fileNamePattern>
+            <!-- 최대 파일 크기 (예: 10MB) -->
+            <maxFileSize>10MB</maxFileSize>
+            <!-- 30일 동안 로그 파일 보관 -->
+            <maxHistory>30</maxHistory>
+            <!-- 전체 로그 파일 크기 제한 (예: 3GB) -->
+            <totalSizeCap>3GB</totalSizeCap>
+        </rollingPolicy>
+
+        <encoder>
+            <pattern>%d{yyyy-MM-dd HH:mm:ss} %-5level %logger{36} - %msg%n</pattern>
+        </encoder>
+    </appender>
+
+    <!-- 외부 시스템과 관련된 오류만 파일에 기록 -->
+    <logger name="externalLogger" level="ERROR" additivity="false">
+        <appender-ref ref="EXTERNAL_ERROR_FILE" />
+    </logger>
+
+    <!-- 기본 콘솔 로그 설정 (모든 로그 콘솔 출력) -->
+    <root level="INFO">
+        <appender-ref ref="CONSOLE" />
+    </root>
+</configuration>
+```
+
+### 재시도 처리 및 로깅   
+예외 발생 시 **재시도 메커니즘**을 적용하여, Spring Retry를 사용해 **최대 3번**의 재시도를 수행하고, 각 재시도 간격을 **2초**로 설정하였습니다.   
+Spring Retry는 **Spring 프레임워크**의 일부로, 재시도 패턴을 간단하게 적용할 수 있도록 지원하는 라이브러리입니다.
 
 ```java
 @Override
+@Retryable(
+  retryFor = ExternalSystemException.class,
+  maxAttempts = 3,
+  backoff = @Backoff(delay = 2000)
+)
 protected String fetchData() {
   try {
     String response = restTemplate.getForObject(EXTERNAL_SYSTEM_URL, String.class);
     return response;
   } catch (Exception e) {
-    // 데이터 연동 실패 시 URL과 예외 로그 기록
-externalLogger.error("데이터 연동 중 오류 발생 (URL: {}): {}", EXTERNAL_SYSTEM_URL, e.getMessage(), e);
     throw new ExternalSystemException("외부 시스템과의 연동 중 오류가 발생했습니다.", e);
   }
 }
 ```
 
-외부 시스템으로 데이터를 전송하는 과정에서 예외가 발생할 경우, **전송 데이터를 포함한 로그**를 남기고 동일한 방식으로 예외를 처리합니다.
+### 재시도 실패 처리   
+**재시도 실패 시**에는 **복구 메소드**를 통해 대체 로직을 처리합니다. 아래는 `fetchData` 메소드에서 재시도가 실패했을 때 호출되는 `@Recover` 메소드입니다.
 
 ```java
-@Override
-protected void sendData(String data) {
-  try {
-    // HTTP 요청 헤더 설정
-    HttpHeaders headers = new HttpHeaders();
-    headers.setContentType(MediaType.APPLICATION_JSON);
-
-    // HTTP 요청 본문 생성
-    HttpEntity<String> request = new HttpEntity<>(data, headers);
-
-    // 외부 시스템으로 POST 요청을 전송하고 응답 처리
-    restTemplate.postForObject(EXTERNAL_SYSTEM_URL, request, String.class);
-  } catch (Exception e) {
-externalLogger.error("데이터 전송 중 오류 발생 (전송 데이터: {}): {}", data, e.getMessage(), e);
-    throw new ExternalSystemException("외부 시스템과의 연동 중 오류가 발생했습니다.", e);
-  }
+// fetchData 재시도 실패 시 호출되는 복구 메소드
+@Recover
+public String recoverFetchData(ExternalSystemException e, String data) {
+externalLogger.error("fetchData 재시도 실패 (데이터: {}): {}", data, e.getMessage());
+  return "Fallback response for fetchData";
 }
 ```
 
-2. **데이터 변환 오류 처리**
-
-```java
-@Override
-protected Order convertDataToOrder(String data) {
-  try {
-    // ObjectMapper를 사용하여 JSON 데이터를 Order 객체로 변환
-    return objectMapper.readValue(data, Order.class);
-  } catch (JsonProcessingException e) {
-    // 데이터 변환 실패 시 원본 JSON 데이터를 로그로 기록
-externalLogger.error("데이터 변환 중 오류 발생 (JSON 데이터: {}): {}", data, e.getMessage(), e);
-    throw new ExternalSystemException("데이터 변환 중 오류가 발생했습니다.", e);
-  }
-}
-```
-
-```java
-@Override
-protected String convertOrderToData(Order order) {
-  try {
-    // ObjectMapper를 사용하여 Order 객체를 JSON 형식으로 변환
-    return objectMapper.writeValueAsString(order);
-  } catch (JsonProcessingException e) {
-    // 네트워크 오류 등 연동 문제 발생 시 로그
-externalLogger.error("Order 객체를 JSON으로 변환 중 오류 발생 (Order: {}): {}", order, e.getMessage(), e);
-    throw new ExternalSystemException("데이터 변환 중 오류가 발생했습니다.", e);
-  }
-}
-```
+`@Recover`는 `@Retryable`에서 설정한 재시도 횟수를 모두 초과했을 때 실행되는 복구 메소드로, 재시도가 불가능할 때 **대체 처리 로직**을 수행합니다.
